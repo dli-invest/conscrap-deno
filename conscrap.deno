@@ -1,0 +1,125 @@
+import { Builder, By, Capabilities, until } from "selenium-webdriver";
+import { Options } from "selenium-webdriver/chrome";
+import { querySelectorAllShadows, showMoreXPath, sortButtonXPath, sortByCreatedAtXPath } from "./constants";
+
+export class Browser {
+
+    public static async mkBrowser() {
+        let driver: any;
+
+        const username = Deno.env.get("REMOTE_SELENIUM_USERNAME");
+        const key = Deno.env.get("REMOTE_SELENIUM_KEY");
+        if (!username) {
+            throw new Error("Missing REMOTE_SELENIUM_USERNAME env var");
+        }
+        if (!key) {
+            throw new Error("Missing REMOTE_SELENIUM_KEY env var");
+        }
+
+        // set browser options
+        const options = new Options();
+        options.addArguments("--disable-dev-shm-usage");
+        options.addArguments("--remote-debugging-port=9222");
+        options.setCapability("os_version", "11");
+        options.setCapability("resolution", "1920x1080");
+        options.setCapability("browser", "Chrome");
+        options.setCapability("browser_version", "latest");
+        options.setCapability("user-agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36");
+
+        // set browserstack capabilities
+        const capabilities = new Capabilities();
+        capabilities.set("os", "Windows");
+        capabilities.set("name", "BStack-[TypeScript] Sample Test");
+        capabilities.set("buildName", "BStack Build Number 1");
+
+        const url = `https://${username}:${key}@hub-cloud.browserstack.com/wd/hub/`;
+        driver = await new Builder()
+            .withCapabilities(capabilities)
+            .setChromeOptions(options)
+            .usingServer(url)
+            .forBrowser("chrome")
+            .build();
+        return driver;
+    }
+
+    public static async sortByNewestComments(driver: any) {
+        try {
+            await driver.sleep(5000);
+            // make into function
+            const sortEle = await driver.findElement(By.xpath(sortButtonXPath));
+            await sortEle.click();
+            await driver.sleep(5000);
+            const createdEle = await driver.findElement(By.xpath(sortByCreatedAtXPath));
+            await createdEle.click();
+            await driver.sleep(5000);
+            return true;
+        } catch (error) {
+            if (error.name === "NoSuchElementError") {
+                return false;
+            }
+            throw error;
+        }
+    }
+
+    public static async showAllComments(driver: any) {
+        // sort by newest
+        let numFailure = 0;
+        for (let i = 0; i < 100; i++) {
+            try {
+                const element = await driver.findElement(By.xpath(showMoreXPath));
+                // need a delay to show elements
+                // click on element using javascript
+                await driver.executeScript("arguments[0].click();", element);
+                await driver.sleep(300);
+            } catch (error) {
+                numFailure++;
+                if (numFailure > 4) {
+                    console.log(i + " Element does not exist! Stopping Loop");
+                    break;
+                }
+            }
+        }
+    }
+    public static async getAllEntries(ticker: String = "PKK.CN") {
+        // have to grab content from iframe this will not be fun.
+        const driver = await this.mkBrowser();
+        // use base url from contant
+        const msgUrls = `https://finance.yahoo.com/quote/${ticker}/community?p=${ticker}`
+        await driver.get(msgUrls);
+
+        await driver.sleep(10000);
+        try {
+            // find Maybe later by text Maybe Later
+            const maybeLater = await driver.findElement(By.xpath("//button[contains(text(), 'Maybe later')]"));
+            await maybeLater.click();
+        } catch (error) {
+            if (error.name === "NoSuchElementError") {
+                console.log("No Maybe Later Button");
+            } else {
+                throw error;
+            }
+        }
+        const iFrame = await driver.findElement(By.xpath("//iframe[contains(@id, 'jacSandbox')]"));
+        await driver.switchTo().frame(iFrame);
+        await driver.sleep(2500);
+        await driver.sleep(1500);
+        try {
+            const spotIm = await driver.findElement(By.xpath("//*[@id='spotim-specific']/div/div"));
+        } catch (error) {
+            if (error.name === "NoSuchElementError") {
+                console.log("No spotIm element");
+            } else {
+                throw error;
+            }
+        }
+        const listElement = await driver.executeScript(`
+            ${querySelectorAllShadows}
+            const results = querySelectorAllShadows('ul.spcv_messages-list');
+            return results[0].outerHTML.toString();
+        `);
+
+        console.log("listElement", listElement);
+        await driver.switchTo().defaultContent();
+        return listElement.toString();
+    }
+}
